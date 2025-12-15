@@ -9,7 +9,12 @@ class BulkMessagingService {
   async sendBulkMessage(messageText, imageUrl = null, scheduledFor = null) {
     try {
       // Get all active users
-      const activeUsers = await UserService.getAllActiveUsers();
+      let activeUsers = await UserService.getAllActiveUsers();
+
+      // Limit to 5 persons maximum
+      if (activeUsers.length > 5) {
+        activeUsers = activeUsers.slice(0, 5);
+      }
 
       if (activeUsers.length === 0) {
         return {

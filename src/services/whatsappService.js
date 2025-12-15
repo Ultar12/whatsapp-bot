@@ -1,4 +1,5 @@
 const twilio = require('twilio');
+const baileysService = require('./baileysService');
 
 class WhatsAppService {
   constructor() {
@@ -7,7 +8,8 @@ class WhatsAppService {
       process.env.TWILIO_AUTH_TOKEN
     );
     this.phoneNumber = process.env.TWILIO_PHONE_NUMBER;
-    this.rateLimitDelay = 100; // milliseconds between messages to avoid rate limiting
+    this.rateLimitDelay = 3500; // 3.5 seconds delay between messages per person
+    this.useBaileys = process.env.USE_BAILEYS === 'true'; // Toggle between Twilio and Baileys
   }
 
   /**
@@ -15,6 +17,12 @@ class WhatsAppService {
    */
   async sendMessage(toPhoneNumber, messageText) {
     try {
+      // Use Baileys if enabled
+      if (this.useBaileys && baileysService.isConnected()) {
+        return await baileysService.sendMessage(toPhoneNumber, messageText);
+      }
+
+      // Fall back to Twilio
       const message = await this.client.messages.create({
         body: messageText,
         from: this.phoneNumber,
@@ -40,6 +48,12 @@ class WhatsAppService {
    */
   async sendMessageWithImage(toPhoneNumber, messageText, imageUrl) {
     try {
+      // Use Baileys if enabled
+      if (this.useBaileys && baileysService.isConnected()) {
+        return await baileysService.sendMessageWithImage(toPhoneNumber, messageText, imageUrl);
+      }
+
+      // Fall back to Twilio
       const message = await this.client.messages.create({
         body: messageText,
         from: this.phoneNumber,

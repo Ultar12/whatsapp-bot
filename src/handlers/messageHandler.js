@@ -32,6 +32,8 @@ class MessageHandler {
       // Check subscription status
       const isActive = await UserService.isSubscriptionActive(userPhone);
       if (!isActive) {
+        // Add delay before replying
+        await new Promise(resolve => setTimeout(resolve, 2000));
         await whatsappService.sendMessage(
           userPhone,
           '⚠️ Your subscription has expired. Please renew to continue using the bot.\nReply "RENEW" to extend your subscription.'
@@ -86,9 +88,13 @@ class MessageHandler {
       if (caption && caption.trim()) {
         // If there's a caption, process it as a query
         const response = await responseGenerator.processMessage(caption, userPhone);
+        // Add delay before replying
+        await new Promise(resolve => setTimeout(resolve, 2000));
         await whatsappService.sendMessage(userPhone, response);
       } else {
         // Just acknowledge receipt of image
+        // Add delay before replying
+        await new Promise(resolve => setTimeout(resolve, 1500));
         await whatsappService.sendMessage(
           userPhone,
           '📸 Image received! Thanks for sharing.\n\nWhat would you like to know about our products?\nType "list" to see all available items.'
@@ -148,6 +154,8 @@ class MessageHandler {
    */
   async handleAutoReply(userPhone, messageText) {
     const response = await responseGenerator.processMessage(messageText, userPhone);
+    // Add delay before replying to make bot seem more natural
+    await new Promise(resolve => setTimeout(resolve, 2000));
     await whatsappService.sendMessage(userPhone, response);
   }
 
@@ -158,6 +166,8 @@ class MessageHandler {
     const renewed = await UserService.renewSubscription(userPhone, 30);
 
     if (renewed) {
+      // Add delay before replying
+      await new Promise(resolve => setTimeout(resolve, 1500));
       await whatsappService.sendMessage(
         userPhone,
         '✅ *Subscription Renewed!*\n\n' +
@@ -166,6 +176,8 @@ class MessageHandler {
         'Type "list" to see all products or ask about any product.'
       );
     } else {
+      // Add delay before replying
+      await new Promise(resolve => setTimeout(resolve, 1500));
       await whatsappService.sendMessage(
         userPhone,
         '❌ Renewal failed. Please contact support.'

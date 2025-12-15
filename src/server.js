@@ -15,6 +15,7 @@ const paymentService = require('./services/paymentService');
 const analyticsService = require('./services/analyticsService');
 const reportingService = require('./services/reportingService');
 const i18nService = require('./services/i18nService');
+const baileysService = require('./services/baileysService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,10 +28,29 @@ app.use(cors());
 // Apply authentication middleware - handles both required and optional auth
 app.use(authService.adminAuthMiddleware());
 
+// ============ BAILEYS MESSAGE HANDLING ============
+
+// Register Baileys message handler
+baileysService.onMessage(async (messageData) => {
+  try {
+    // Convert Baileys format to messageHandler format
+    const body = {
+      From: `whatsapp:${messageData.from}`,
+      Body: messageData.body,
+      NumMedia: 0,
+      ProfileName: messageData.from,
+    };
+    
+    await messageHandler.handleIncomingMessage(body);
+  } catch (error) {
+    console.error('Error processing Baileys message:', error);
+  }
+});
+
 // ============ WEBHOOK ENDPOINTS ============
 
 /**
- * Twilio webhook for incoming messages
+ * Twilio webhook for incoming messages (kept for backward compatibility)
  */
 app.post('/webhook/incoming-message', async (req, res) => {
   try {
@@ -46,7 +66,11 @@ app.post('/webhook/incoming-message', async (req, res) => {
  * Health check
  */
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    baileysConnected: baileysService.isConnected()
+  });
 });
 
 // ============ COMMODITY MANAGEMENT ENDPOINTS ============
@@ -896,6 +920,10 @@ async function startServer() {
     // Connect to database
     await db.connect();
     console.log('✓ Database connected');
+
+    // Initialize Baileys
+    console.log('Initializing Baileys...');
+    await baileysService.initialize();
 
     // Start Express server
     app.listen(PORT, () => {
