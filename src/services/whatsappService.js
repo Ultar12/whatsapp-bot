@@ -3,13 +3,20 @@ const baileysService = require('./baileysService');
 
 class WhatsAppService {
   constructor() {
-    this.client = twilio(
-      process.env.TWILIO_ACCOUNT_SID,
-      process.env.TWILIO_AUTH_TOKEN
-    );
+    // Validate required Twilio credentials
+    if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) {
+      console.warn('⚠️  Twilio credentials not configured. Using Baileys only.');
+      this.client = null;
+      this.useBaileys = true;
+    } else {
+      this.client = twilio(
+        process.env.TWILIO_ACCOUNT_SID,
+        process.env.TWILIO_AUTH_TOKEN
+      );
+      this.useBaileys = process.env.USE_BAILEYS === 'true';
+    }
     this.phoneNumber = process.env.TWILIO_PHONE_NUMBER;
     this.rateLimitDelay = 3500; // 3.5 seconds delay between messages per person
-    this.useBaileys = process.env.USE_BAILEYS === 'true'; // Toggle between Twilio and Baileys
   }
 
   /**
@@ -17,8 +24,8 @@ class WhatsAppService {
    */
   async sendMessage(toPhoneNumber, messageText) {
     try {
-      // Use Baileys if enabled
-      if (this.useBaileys && baileysService.isConnected()) {
+      // Use Baileys if enabled or Twilio not configured
+      if (this.useBaileys || !this.client || !baileysService.isConnected()) {
         return await baileysService.sendMessage(toPhoneNumber, messageText);
       }
 
