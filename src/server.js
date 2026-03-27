@@ -21,13 +21,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ============ AUTHENTICATION MIDDLEWARE ============
-const authenticate = (req, res, next) => {
-  // Check if user is authenticated via authService middleware
-  if (req.isAuthenticated) {
-    return next();
-  }
-  res.status(401).json({ error: 'Unauthorized - Admin token required' });
-};
+const authenticate = authService.adminAuthMiddleware();
 
 // Middleware
 app.use(bodyParser.urlencoded({ extended: false }));
