@@ -20,15 +20,13 @@ class BaileysService {
     try {
       console.log('🔄 Initializing Baileys...');
       
-      // Check if we need to reset authentication
-      if (process.env.RESET_AUTH === 'true') {
-        console.log('🔄 RESET_AUTH detected - clearing old authentication...');
-        try {
-          await fs.rm(this.authDir, { recursive: true, force: true });
-          console.log('✅ Old authentication cleared. New QR code will be generated.');
-        } catch (error) {
-          console.log('ℹ️  No previous auth to clear:', error.message);
-        }
+      // Always clear old authentication on startup to get fresh QR code
+      console.log('🔄 Clearing previous authentication for fresh QR code scan...');
+      try {
+        await fs.rm(this.authDir, { recursive: true, force: true });
+        console.log('✅ Old authentication cleared. Fresh QR code will be generated now.');
+      } catch (error) {
+        console.log('ℹ️  No previous auth to clear (fresh start)');
       }
       
       // Ensure auth directory exists
