@@ -253,6 +253,38 @@ class BaileysService {
   getLatestQRCode() {
     return this.latestQRCode;
   }
+
+  /**
+   * Reset connection and generate new QR code
+   */
+  async resetConnection() {
+    try {
+      console.log('🔄 Resetting WhatsApp connection...');
+      
+      // Disconnect if already connected
+      if (this.sock) {
+        await this.sock.end();
+        this.sock = null;
+      }
+
+      // Clear authentication
+      try {
+        await fs.rm(this.authDir, { recursive: true, force: true });
+        console.log('✅ Cleared old authentication');
+      } catch (error) {
+        console.log('ℹ️  No previous auth to clear');
+      }
+
+      // Clear stored QR code
+      this.latestQRCode = null;
+
+      // Reinitialize to generate fresh QR code
+      console.log('🔄 Reinitializing with fresh QR code...');
+      setTimeout(() => this.initialize(), 500);
+    } catch (error) {
+      console.error('❌ Error resetting connection:', error);
+    }
+  }
 }
 
 module.exports = new BaileysService();

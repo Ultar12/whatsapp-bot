@@ -201,6 +201,71 @@ app.get('/qr-code', (req, res) => {
   }
 });
 
+/**
+ * Reset WhatsApp connection and generate new QR code
+ */
+app.get('/reset-qr', (req, res) => {
+  try {
+    console.log('🔄 Resetting WhatsApp connection for new QR code...');
+    baileysService.resetConnection();
+    
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>WhatsApp Bot - Reset</title>
+        <style>
+          body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+          }
+          .container { 
+            text-align: center; 
+            background: white; 
+            padding: 40px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+          }
+          h1 { color: #25D366; margin: 0 0 20px 0; }
+          p { color: #666; margin: 10px 0; }
+          .success { color: #25D366; font-weight: bold; }
+          a { 
+            display: inline-block;
+            margin-top: 20px;
+            padding: 10px 30px;
+            background: #25D366;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+          }
+          a:hover { background: #20ba5a; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>🔄 Reset Initiated</h1>
+          <p class="success">✅ WhatsApp connection is being reset...</p>
+          <p>A new QR code will be generated in <strong>10-15 seconds</strong>.</p>
+          <a href="/qr-code">View New QR Code</a>
+          <p style="margin-top: 30px; font-size: 12px; color: #999;">
+            If the QR code is still loading, refresh the page in a few seconds.
+          </p>
+        </div>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    console.error('Error resetting connection:', error);
+    res.status(500).json({ error: 'Error resetting connection' });
+  }
+});
+
 // ============ COMMODITY MANAGEMENT ENDPOINTS ============
 
 /**
