@@ -12,6 +12,7 @@ class AuthService {
       '/webhook/incoming-message',
       '/api/updates',
       '/api/updates/*',
+      '/qr-code',
     ];
 
     // Validate password on startup
