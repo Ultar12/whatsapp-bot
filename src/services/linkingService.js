@@ -13,7 +13,17 @@ class LinkingService {
     this.pinLength = 8;
     this.maxAttempts = 3;
   }
-
+   async cleanupExpiredSessions() {
+    try {
+      const expirationTime = new Date(Date.now() - this.sessionTimeout).toISOString();
+      return await db.run(
+        `DELETE FROM linking_sessions WHERE createdAt < ? AND linked = 0`,
+        [expirationTime]
+      );
+    } catch (error) {
+      console.error('Error in cleanupExpiredSessions:', error);
+    }
+  }
   async generateLinkingSession(phoneNumber) {
     try {
       if (!this.isValidPhoneNumber(phoneNumber)) {

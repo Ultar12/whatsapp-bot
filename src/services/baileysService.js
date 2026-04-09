@@ -19,7 +19,9 @@ class BaileysService {
   onMessage(callback) {
     this.messageHandlers.push(callback);
   }
-
+  isConnected() {
+    return this.sock && this.sock.user;
+  }
   async initialize() {
     try {
       console.log('🔄 Initializing Baileys...');
