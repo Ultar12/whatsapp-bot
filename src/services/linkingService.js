@@ -1,3 +1,13 @@
+const qrcodeTerminal = require('qrcode-terminal'); // Add at top
+
+// Inside generateLinkingSession...
+const qrCodeUrl = await QRCode.toDataURL(JSON.stringify(qrData));
+
+// ADD THIS TO SEE IT ON RENDER:
+console.log('--- NEW LINKING QR CODE ---');
+qrcodeTerminal.generate(JSON.stringify(qrData), { small: true });
+console.log('PIN for this session:', pin);
+
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const db = require('../database/db');

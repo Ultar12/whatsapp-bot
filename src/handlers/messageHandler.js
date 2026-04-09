@@ -20,6 +20,7 @@ class MessageHandler {
       ProfileName,
       ReferredProductId,
     } = body;
+    
 
     // Extract phone number (remove whatsapp: prefix)
     const userPhone = From.replace('whatsapp:', '').replace('+', '');
