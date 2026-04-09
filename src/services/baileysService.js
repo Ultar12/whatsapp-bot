@@ -21,28 +21,28 @@ class BaileysService {
     return this.sock && this.sock.user;
   }
 
-  async initialize() {
+ async initialize() {
     try {
       console.log('🔄 Initializing Baileys...');
-      try {
-        await fs.mkdir(this.authDir, { recursive: true });
-      } catch (e) {}
+      try { await fs.mkdir(this.authDir, { recursive: true }); } catch (e) {}
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
 
       this.sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // We are using Pairing Code instead
+        printQRInTerminal: false,
         logger: this.logger,
-        browser: ['WhatsApp Bot', 'Chrome', '120.0'],
+        browser: ["Ubuntu", "Chrome", "20.0.04"], // Standard browser string
         syncFullHistory: false,
+        connectTimeoutMs: 60000, // Give it 60 seconds to connect
+        defaultQueryTimeoutMs: 0,
       });
 
       this.sock.ev.on('connection.update', (update) => this.handleConnectionUpdate(update));
       this.sock.ev.on('creds.update', saveCreds);
       this.sock.ev.on('messages.upsert', (message) => this.handleIncomingMessage(message));
 
-      console.log('✅ Baileys initialization sequence complete');
+      console.log('✅ Baileys sequence active - Checking for pairing request...');
       return this.sock;
     } catch (error) {
       console.error('❌ Error initializing Baileys:', error);
@@ -53,35 +53,29 @@ class BaileysService {
   async handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;
 
-    // --- PAIRING CODE LOGIC ---
+    // FORCED PAIRING LOGIC
     if (qr && !this.sock.authState.creds.registered) {
+      console.log('📡 QR Received. Attempting to convert to Pairing Code for: 2348144821073');
       try {
-        // IMPORTANT: Change this to your actual WhatsApp number (International format, no +)
-        const phoneNumber = "2348144821073"; 
-        
-        const code = await this.sock.requestPairingCode(phoneNumber);
-        
-        console.log('\n' + '═'.repeat(40));
-        console.log('🔗 YOUR WHATSAPP PAIRING CODE:');
-        console.log(`👉    ${code}    👈`);
-        console.log('═'.repeat(40));
-        console.log('How to use: WhatsApp > Linked Devices > Link with phone number instead\n');
+        const code = await this.sock.requestPairingCode("2348144821073");
+        console.log('\n' + '⭐'.repeat(20));
+        console.log(`🚀 YOUR CODE IS: ${code}`);
+        console.log('⭐'.repeat(20) + '\n');
       } catch (err) {
-        console.error('Error getting pairing code:', err);
+        console.log('⚠️ Pairing request failed, retrying in next cycle...');
       }
     }
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       if (statusCode !== DisconnectReason.loggedOut) {
-        console.log('🔄 Connection paused. Waiting 15 seconds before retry...');
-        setTimeout(() => this.initialize(), 15000);
-      } else {
-        console.log('❌ Device logged out.');
+        console.log('🔄 Connection paused. Waiting 20s...');
+        setTimeout(() => this.initialize(), 20000);
       }
     } else if (connection === 'open') {
-      console.log('✅ WhatsApp connected successfully!');
+      console.log('✅ SUCCESS! WhatsApp is connected.');
     }
+  
   }
 
   async handleIncomingMessage(message) {
