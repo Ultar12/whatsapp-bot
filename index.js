@@ -69,6 +69,32 @@ app.get('/', (req, res) => {
     version: '2.0',
   });
 });
+// New route to see your Pairing Code on a webpage
+app.get('/get-my-code', (req, res) => {
+  if (baileysService.latestPairingCode) {
+    res.send(`
+      <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+        <h1>🚀 YOUR PAIRING CODE</h1>
+        <div style="font-size: 50px; font-weight: bold; background: #f0f0f0; display: inline-block; padding: 20px; border-radius: 10px; border: 2px solid #25D366;">
+          ${baileysService.latestPairingCode}
+        </div>
+        <p style="margin-top: 20px;">Type this into your phone in the "Link with phone number" section.</p>
+        <button onclick="window.location.reload()" style="padding: 10px 20px; cursor: pointer;">Refresh Code</button>
+      </div>
+    `);
+  } else {
+    res.send(`
+      <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+        <h1>⏳ No code generated yet</h1>
+        <p>1. Open WhatsApp on your phone.</p>
+        <p>2. Go to Linked Devices > Link with phone number.</p>
+        <p>3. Enter your number (2348144821073).</p>
+        <p>4. <b>Then refresh this page.</b></p>
+        <button onclick="window.location.reload()" style="padding: 10px 20px; cursor: pointer;">Check Again</button>
+      </div>
+    `);
+  }
+});
 
 // Message webhook endpoint
 app.post('/webhook/messages', async (req, res) => {

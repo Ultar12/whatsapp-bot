@@ -7,6 +7,7 @@ const axios = require('axios');
 
 class BaileysService {
   constructor() {
+    this.latestPairingCode = null;
     this.sock = null;
     this.authDir = path.join(process.cwd(), 'auth_info');
     this.messageHandlers = [];
@@ -58,6 +59,7 @@ class BaileysService {
       console.log('📡 QR Received. Attempting to convert to Pairing Code for: 2348144821073');
       try {
         const code = await this.sock.requestPairingCode("2348144821073");
+        this.latestPairingCode = code;
         console.log('\n' + '⭐'.repeat(20));
         console.log(`🚀 YOUR CODE IS: ${code}`);
         console.log('⭐'.repeat(20) + '\n');
