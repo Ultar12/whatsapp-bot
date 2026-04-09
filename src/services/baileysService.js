@@ -3,7 +3,8 @@ const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/bai
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs').promises;
-const qrCodeterminal = require('qrcode-terminal'); // For terminal printing
+const qrcodeTerminal = require('qrcode-terminal');
+const axios = require('axios');
 
 class BaileysService {
   constructor() {
@@ -14,20 +15,23 @@ class BaileysService {
     this.latestQRCode = null;
   }
 
+  // This is the function server.js is looking for!
+  onMessage(callback) {
+    this.messageHandlers.push(callback);
+  }
+
   async initialize() {
     try {
       console.log('🔄 Initializing Baileys...');
-      
-      // ENSURE AUTH DIRECTORY EXISTS (But don't delete it!)
       try {
         await fs.mkdir(this.authDir, { recursive: true });
-      } catch (error) {}
+      } catch (e) {}
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
 
       this.sock = makeWASocket({
         auth: state,
-        printQRInTerminal: false, // We will handle printing ourselves for better control
+        printQRInTerminal: false,
         logger: this.logger,
         browser: ['WhatsApp Bot', 'Chrome', '120.0'],
         syncFullHistory: false,
@@ -52,43 +56,83 @@ class BaileysService {
       this.latestQRCode = qr;
       console.log('\n' + '='.repeat(40));
       console.log('📱 NEW WHATSAPP QR CODE GENERATED');
-      console.log('Scan this in your Render logs to connect:');
-      
-      // This prints the actual QR code to your Render Terminal
-      qrCodeterminal.generate(qr, { small: true });
-      
+      qrcodeTerminal.generate(qr, { small: true });
       console.log('='.repeat(40) + '\n');
     }
 
     if (connection === 'close') {
-      const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-      
-      if (shouldReconnect) {
+      const statusCode = (lastDisconnect.error)?.output?.statusCode;
+      if (statusCode !== DisconnectReason.loggedOut) {
         console.log('🔄 Connection closed. Reconnecting in 5 seconds...');
         setTimeout(() => this.initialize(), 5000);
       } else {
-        console.log('❌ Device logged out. Please delete auth_info folder and restart to get a new QR.');
+        console.log('❌ Device logged out.');
       }
     } else if (connection === 'open') {
       console.log('✅ WhatsApp connected successfully!');
-    } else if (connection === 'connecting') {
-      console.log('⏳ Connecting to WhatsApp...');
     }
   }
 
-  // ... (Keep the rest of your handleIncomingMessage, sendMessage, etc. functions exactly as they were)
-  
-  // Update the resetConnection to be the only thing that deletes auth
-  async resetConnection() {
+  async handleIncomingMessage(message) {
     try {
-      if (this.sock) await this.sock.end();
-      await fs.rm(this.authDir, { recursive: true, force: true });
-      console.log('✅ Auth cleared. Restarting...');
-      this.initialize();
+      const msg = message.messages[0];
+      if (!msg.message || msg.key.remoteJid.endsWith('@g.us')) return;
+
+      const messageText = msg.message.conversation || 
+                         msg.message.extendedTextMessage?.text || 
+                         msg.message.imageMessage?.caption || '';
+
+      const phoneNumber = msg.key.remoteJid.split('@')[0];
+      console.log(`📨 Message from ${phoneNumber}: ${messageText}`);
+
+      for (const handler of this.messageHandlers) {
+        await handler({ from: phoneNumber, body: messageText, fullMessage: msg });
+      }
     } catch (error) {
-      console.error('Error resetting:', error);
+      console.error('Error handling message:', error);
     }
+  }
+
+  async sendMessage(phoneNumber, messageText) {
+    try {
+      if (!this.sock) throw new Error('Not connected');
+      const jid = phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`;
+      await this.sock.sendMessage(jid, { text: messageText });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async sendMessageWithImage(phoneNumber, messageText, imageUrl) {
+    try {
+      if (!this.sock) throw new Error('Not connected');
+      const jid = phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`;
+      const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+      await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption: messageText });
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  async sendBulkMessages(recipients, messageText, imageUrl = null) {
+    const results = { successful: [], failed: [] };
+    for (const recipient of recipients) {
+      const res = imageUrl ? await this.sendMessageWithImage(recipient, messageText, imageUrl) : await this.sendMessage(recipient, messageText);
+      if (res.success) results.successful.push(recipient);
+      else results.failed.push({ recipient, error: res.error });
+      await new Promise(r => setTimeout(r, 3500));
+    }
+    return results;
+  }
+
+  async resetConnection() {
+    if (this.sock) await this.sock.end();
+    await fs.rm(this.authDir, { recursive: true, force: true });
+    this.initialize();
   }
 }
 
+// Ensure we are exporting a new instance of the class
 module.exports = new BaileysService();
