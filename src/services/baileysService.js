@@ -51,22 +51,28 @@ class BaileysService {
     }
   }
 
-  async handleConnectionUpdate(update) {
+ async handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
       this.latestQRCode = qr;
-      console.log('\n' + '='.repeat(40));
-      console.log('📱 NEW WHATSAPP QR CODE GENERATED');
-      qrcodeTerminal.generate(qr, { small: true });
-      console.log('='.repeat(40) + '\n');
+      // We are adding a massive visual border to help you spot it
+      console.log('\n\n' + '########################################'.repeat(3));
+      console.log('      🚨 SCAN THIS QR CODE NOW 🚨      ');
+      console.log('########################################'.repeat(3) + '\n');
+      
+      // We use the 'large' version so it doesn't compress and disappear in Render
+      qrcodeTerminal.generate(qr, { small: false });
+      
+      console.log('\n' + '########################################'.repeat(3) + '\n\n');
     }
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       if (statusCode !== DisconnectReason.loggedOut) {
-        console.log('🔄 Connection closed. Reconnecting in 5 seconds...');
-        setTimeout(() => this.initialize(), 5000);
+        // We are increasing this to 15 seconds to give the terminal a break
+        console.log('🔄 Connection paused. Waiting 15 seconds before retry...');
+        setTimeout(() => this.initialize(), 15000);
       } else {
         console.log('❌ Device logged out.');
       }
