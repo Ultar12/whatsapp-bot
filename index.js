@@ -135,6 +135,23 @@ app.get('/api/reports', async (req, res) => {
     res.status(500).json({ error: 'Failed to generate report' });
   }
 });
+ // Route to trigger the QR Code in Render Logs
+app.get('/generate-qr', async (req, res) => {
+  const { phone } = req.query;
+  if (!phone) return res.status(400).send('Add ?phone=YOUR_NUMBER to the URL');
+
+  try {
+    // This calls the "Golden Version" service we just fixed
+    const session = await linkingService.generateLinkingSession(phone);
+    res.json({
+      message: "Check your Render Logs for the QR Code!",
+      pin: session.pin,
+      sessionId: session.sessionId
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // ============ ERROR HANDLING ============
 app.use((err, req, res, next) => {
