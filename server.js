@@ -5,19 +5,22 @@ const cors = require('cors');
 const path = require('path');
 const QRCode = require('qrcode');
 
-// Import core services
-const db = require('./database/db');
-const messageHandler = require('./handlers/messageHandler');
-const { BulkMessagingService, UpdateBroadcastService } = require('./handlers/bulkMessagingHandler');
-const subscriptionService = require('./services/subscriptionService');
-const { CommodityService } = require('./database/services');
-const authService = require('./services/authService');
-const linkingHandler = require('./handlers/linkingHandler');
-const paymentHandler = require('./handlers/paymentHandler');
-const analyticsService = require('./services/analyticsService');
-const reportingService = require('./services/reportingService');
-const i18nService = require('./services/i18nService');
-const baileysService = require('./services/baileysService');
+// ============ 📍 IMPORT CORE SERVICES (UPDATED PATHS) ============
+// We added './src/' to these so the server can find them in their new home
+const db = require('./src/database/db');
+const messageHandler = require('./src/handlers/messageHandler');
+const { BulkMessagingService, UpdateBroadcastService } = require('./src/handlers/bulkMessagingHandler');
+const subscriptionService = require('./src/services/subscriptionService');
+const { CommodityService } = require('./src/database/services');
+const authService = require('./src/services/authService');
+const linkingHandler = require('./src/handlers/linkingHandler');
+const paymentHandler = require('./src/handlers/paymentHandler');
+const analyticsService = require('./src/services/analyticsService');
+const reportingService = require('./src/services/reportingService');
+const i18nService = require('./src/services/i18nService');
+const baileysService = require('./src/services/baileysService');
+
+// This one is in the same folder as server.js, so no 'src' needed
 const telegramService = require('./telegramService');
 
 const app = express();
@@ -39,7 +42,7 @@ app.get('/get-my-code', (req, res) => {
   if (baileysService.latestPairingCode) {
     res.send(`
       <div style="font-family: sans-serif; text-align: center; padding: 50px; background: #e5ddd5; min-height: 100vh;">
-        <div style="background: white; display: inline-block; padding: 40px; border-radius: 20px; shadow: 0 4px 15px rgba(0,0,0,0.2);">
+        <div style="background: white; display: inline-block; padding: 40px; border-radius: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
           <h1 style="color: #25D366; margin-bottom: 10px;">🚀 WhatsApp Bot Pairing</h1>
           <p style="color: #666; font-size: 18px;">Enter this code on your phone:</p>
           <div style="background: #f0f0f0; padding: 20px; border-radius: 10px; border: 3px solid #25D366; margin: 20px 0;">
@@ -57,7 +60,7 @@ app.get('/get-my-code', (req, res) => {
         <h1>⏳ Waiting for Pairing Request...</h1>
         <p>1. Open WhatsApp on your phone.</p>
         <p>2. Link a device -> <b>Link with phone number instead</b>.</p>
-        <p>3. Enter: <b>2348144821073</b></p>
+        <p>3. Enter your phone number in the bot.</p>
         <p>4. Once you click "Next" on your phone, <b>Refresh this page</b>.</p>
       </div>
     `);
@@ -124,8 +127,11 @@ app.post('/api/bulk-message', async (req, res) => {
 async function startServer() {
   try {
     await db.connect();
-    console.log('✓ Telegram Command Center Active');
     console.log('✓ Database connected');
+
+    // Initialize Telegram
+    telegramService.initialize();
+    console.log('✓ Telegram Command Center Active');
 
     await baileysService.initialize();
     console.log('✓ Baileys service initialized');
@@ -153,12 +159,3 @@ baileysService.onMessage(async (messageData) => {
 startServer();
 
 module.exports = app;
-// Listen for the signal from Telegram and get the code from WhatsApp
-process.on('REQUEST_PAIRING_CODE', async (phoneNumber) => {
-  try {
-    const code = await baileysService.sock.requestPairingCode(phoneNumber);
-    await telegramService.sendCode(code);
-  } catch (err) {
-    console.error("Pairing Error:", err);
-  }
-});
