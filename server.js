@@ -159,3 +159,25 @@ baileysService.onMessage(async (messageData) => {
 startServer();
 
 module.exports = app;
+
+// ============ 📡 THE SIGNAL LISTENER (ADD THIS!) ============
+// This listens for the /link command from Telegram
+process.on('REQUEST_PAIRING_CODE', async (phoneNumber) => {
+  try {
+    console.log(`📡 Signal received! Requesting code for: ${phoneNumber}`);
+    
+    // 1. Tell the WhatsApp service to get a code
+    const code = await baileysService.sock.requestPairingCode(phoneNumber);
+    
+    // 2. Save it so the webpage /get-my-code can see it
+    baileysService.latestPairingCode = code;
+    
+    console.log(`✅ Code generated: ${code}`);
+    
+    // 3. Send the code back to your Telegram bot
+    await telegramService.sendCode(code);
+    
+  } catch (err) {
+    console.error("❌ Pairing Error:", err);
+  }
+});
