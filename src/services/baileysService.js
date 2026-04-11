@@ -1,20 +1,31 @@
 const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { useMultiFileAuthState, DisconnectReason, delay } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs').promises;
 const axios = require('axios');
+const QRCode = require('qrcode'); // Need this for the QR generation
 
-// Import telegram service so we can send the code to your chat
+// Import telegram service
 const telegramService = require('../../telegramService');
 
 class BaileysService {
   constructor() {
     this.latestPairingCode = null;
     this.sock = null;
-    this.authDir = path.join(process.cwd(), 'session_v3');
+    // Using a brand new folder to ensure a clean start
+    this.authDir = path.join(process.cwd(), 'session_hybrid_v1');
     this.messageHandlers = [];
     this.logger = pino({ level: 'error' });
+
+    // Listen for the button click event from Telegram
+    process.on('REQUEST_PAIRING_CODE', async (phoneNumber) => {
+      await this.requestManualCode(phoneNumber);
+    });
+
+    process.on('REQUEST_QR_SCAN', async () => {
+       await this.resetConnection();
+    });
   }
 
   onMessage(callback) {
@@ -27,7 +38,7 @@ class BaileysService {
 
   async initialize() {
     try {
-      console.log('🔄 Initializing Baileys...');
+      console.log('🔄 Initializing Baileys Hybrid Service...');
       try { await fs.mkdir(this.authDir, { recursive: true }); } catch (e) {}
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
@@ -46,7 +57,6 @@ class BaileysService {
       this.sock.ev.on('creds.update', saveCreds);
       this.sock.ev.on('messages.upsert', (message) => this.handleIncomingMessage(message));
 
-      console.log('✅ Baileys sequence active - Checking for pairing request...');
       return this.sock;
     } catch (error) {
       console.error('❌ Error initializing Baileys:', error);
@@ -57,33 +67,45 @@ class BaileysService {
   async handleConnectionUpdate(update) {
     const { connection, lastDisconnect, qr } = update;
 
-    // FORCED PAIRING LOGIC
+    // 1. If a QR is received, send it as a photo to Telegram
     if (qr && !this.sock.authState.creds.registered) {
-      console.log('📡 QR Received. Attempting to convert to Pairing Code for: 2348144821073');
+      console.log('📡 QR Received. Sending to Telegram Admin...');
       try {
-        const code = await this.sock.requestPairingCode("2348144821073");
-        this.latestPairingCode = code;
-        
-        console.log('\n' + '⭐'.repeat(20));
-        console.log(`🚀 YOUR CODE IS: ${code}`);
-        console.log('⭐'.repeat(20) + '\n');
-
-        // NEW: This sends the code directly to your Telegram bot!
-        await telegramService.sendCode(code);
-        
+        const qrBuffer = await QRCode.toBuffer(qr);
+        await telegramService.sendQR(qrBuffer);
       } catch (err) {
-        console.log('⚠️ Pairing request failed, retrying in next cycle...');
+        console.error('❌ Failed to send QR to Telegram:', err);
       }
     }
 
     if (connection === 'close') {
       const statusCode = (lastDisconnect.error)?.output?.statusCode;
       if (statusCode !== DisconnectReason.loggedOut) {
-        console.log('🔄 Connection paused. Waiting 20s...');
-        setTimeout(() => this.initialize(), 20000);
+        console.log('🔄 Connection lost. Reconnecting in 10s...');
+        setTimeout(() => this.initialize(), 10000);
       }
     } else if (connection === 'open') {
       console.log('✅ SUCCESS! WhatsApp is connected.');
+      const adminId = process.env.TELEGRAM_ADMIN_ID;
+      if (adminId) {
+          await telegramService.bot.api.sendMessage(adminId, "🎉 *WhatsApp is now linked and active!*", { parse_mode: "Markdown" });
+      }
+    }
+  }
+
+  // 2. NEW: Function to manually request the 8-digit code when button is clicked
+  async requestManualCode(phoneNumber) {
+    try {
+      console.log(`🔢 Requesting 8-digit code for: ${phoneNumber}`);
+      // Small delay to ensure socket is ready
+      await delay(3000); 
+      const code = await this.sock.requestPairingCode(phoneNumber);
+      this.latestPairingCode = code;
+      
+      console.log(`🚀 CODE GENERATED: ${code}`);
+      await telegramService.sendCode(code);
+    } catch (err) {
+      console.error('❌ Pairing code request failed:', err);
     }
   }
 
@@ -93,12 +115,11 @@ class BaileysService {
       if (!msg.message || msg.key.remoteJid.endsWith('@g.us')) return;
 
       const messageText = msg.message.conversation || 
-                         msg.message.extendedTextMessage?.text || 
-                         msg.message.imageMessage?.caption || '';
+                          msg.message.extendedTextMessage?.text || 
+                          msg.message.imageMessage?.caption || '';
 
       const phoneNumber = msg.key.remoteJid.split('@')[0];
-      console.log(`📨 Message from ${phoneNumber}: ${messageText}`);
-
+      
       for (const handler of this.messageHandlers) {
         await handler({ from: phoneNumber, body: messageText, fullMessage: msg });
       }
@@ -118,33 +139,14 @@ class BaileysService {
     }
   }
 
-  async sendMessageWithImage(phoneNumber, messageText, imageUrl) {
-    try {
-      if (!this.sock) throw new Error('Not connected');
-      const jid = phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`;
-      const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-      await this.sock.sendMessage(jid, { image: Buffer.from(response.data), caption: messageText });
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  }
-
-  async sendBulkMessages(recipients, messageText, imageUrl = null) {
-    const results = { successful: [], failed: [] };
-    for (const recipient of recipients) {
-      const res = imageUrl ? await this.sendMessageWithImage(recipient, messageText, imageUrl) : await this.sendMessage(recipient, messageText);
-      if (res.success) results.successful.push(recipient);
-      else results.failed.push({ recipient, error: res.error });
-      await new Promise(r => setTimeout(r, 3500));
-    }
-    return results;
-  }
-
   async resetConnection() {
-    if (this.sock) await this.sock.end();
+    console.log("♻️ Resetting session for fresh link...");
+    if (this.sock) {
+        try { await this.sock.logout(); } catch (e) {}
+        try { await this.sock.end(); } catch (e) {}
+    }
     await fs.rm(this.authDir, { recursive: true, force: true });
-    this.initialize();
+    return this.initialize();
   }
 }
 
