@@ -6,7 +6,6 @@ const path = require('path');
 const QRCode = require('qrcode');
 
 // ============ 📍 IMPORT CORE SERVICES (UPDATED PATHS) ============
-// We added './src/' to these so the server can find them in their new home
 const db = require('./src/database/db');
 const messageHandler = require('./src/handlers/messageHandler');
 const { BulkMessagingService, UpdateBroadcastService } = require('./src/handlers/bulkMessagingHandler');
@@ -20,7 +19,7 @@ const reportingService = require('./src/services/reportingService');
 const i18nService = require('./src/services/i18nService');
 const baileysService = require('./src/services/baileysService');
 
-// This one is in the same folder as server.js, so no 'src' needed
+// This one is in the same folder as server.js
 const telegramService = require('./telegramService');
 
 const app = express();
@@ -35,8 +34,7 @@ app.use(cors());
 // ============ 🔓 PUBLIC ROUTES (NO PASSWORD NEEDED) ============
 
 /**
- * NEW: The "Emergency" Pairing Code Viewer
- * This is ABOVE the auth middleware so you can actually see your code!
+ * Emergency Pairing Code Viewer
  */
 app.get('/get-my-code', (req, res) => {
   if (baileysService.latestPairingCode) {
@@ -58,10 +56,7 @@ app.get('/get-my-code', (req, res) => {
     res.send(`
       <div style="font-family: sans-serif; text-align: center; padding: 50px;">
         <h1>⏳ Waiting for Pairing Request...</h1>
-        <p>1. Open WhatsApp on your phone.</p>
-        <p>2. Link a device -> <b>Link with phone number instead</b>.</p>
-        <p>3. Enter your phone number in the bot.</p>
-        <p>4. Once you click "Next" on your phone, <b>Refresh this page</b>.</p>
+        <p>Go to your Telegram Bot and click <b>Link WhatsApp</b> to generate a QR code or numeric code.</p>
       </div>
     `);
   }
@@ -80,23 +75,7 @@ app.get('/health', (req, res) => {
 
 // ============ 🔒 PRIVATE ROUTES (SECURITY GUARD STARTS HERE) ============
 
-// Apply authentication middleware to everything below this line
 app.use(authService.adminAuthMiddleware());
-
-/**
- * Get WhatsApp QR Code (For scan method)
- */
-app.get('/qr-code', async (req, res) => {
-  try {
-    const qrCodeData = baileysService.getLatestQRCode();
-    if (!qrCodeData) return res.status(503).send('<h1>QR Loading... Refresh in 5s</h1>');
-    
-    const dataURL = await QRCode.toDataURL(qrCodeData, { width: 400 });
-    res.send(`<div style="text-align:center"><h1>Scan Me</h1><img src="${dataURL}"></div>`);
-  } catch (err) {
-    res.status(500).json({ error: 'QR Error' });
-  }
-});
 
 // ============ WEBHOOKS ============
 
@@ -109,7 +88,7 @@ app.post('/webhook/messages', async (req, res) => {
   }
 });
 
-// ============ API ENDPOINTS (COMMODITIES, ANALYTICS, ETC) ============
+// ============ API ENDPOINTS ============
 
 app.get('/api/commodities', async (req, res) => {
   const commodities = await CommodityService.getAllCommodities();
@@ -156,25 +135,30 @@ baileysService.onMessage(async (messageData) => {
   await messageHandler.handleIncomingMessage(body);
 });
 
+// ============ 🔄 TELEGRAM EVENT BRIDGES ============
+
+// Listener for the "Link WhatsApp" or "Restart" button
+process.on('REQUEST_QR_SCAN', async () => {
+  try {
+    console.log("♻️ Resetting session for fresh link...");
+    // This triggers the resetConnection function in baileysService.js
+    await baileysService.resetConnection();
+  } catch (err) {
+    console.error("❌ QR Request Error:", err);
+  }
+});
+
+// Listener for the "Request 8-Digit Code" button
+process.on('REQUEST_PAIRING_CODE', async (phoneNumber) => {
+  try {
+    console.log(`🔢 Requesting 8-digit code for: ${phoneNumber}`);
+    // This triggers the pairing code function in baileysService.js
+    await baileysService.requestManualCode(phoneNumber);
+  } catch (err) {
+    console.error("❌ Pairing Code Error:", err);
+  }
+});
+
 startServer();
 
 module.exports = app;
-
-process.on('REQUEST_QR_SCAN', async () => {
-  try {
-    console.log("📡 Generating QR Code for Telegram...");
-    const qrData = baileysService.getLatestQRCode(); // Get the raw QR string
-
-    if (qrData) {
-      // Convert the string into an actual image buffer
-      const qrBuffer = await QRCode.toBuffer(qrData);
-      // Send that buffer to the Telegram service
-      await telegramService.sendQR(qrBuffer);
-      console.log("✅ QR Code sent to Telegram!");
-    } else {
-      console.log("⏳ QR not ready yet. Try again in 5 seconds.");
-    }
-  } catch (err) {
-    console.error("❌ QR Telegram Error:", err);
-  }
-});
