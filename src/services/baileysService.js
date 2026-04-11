@@ -12,7 +12,7 @@ class BaileysService {
   constructor() {
     this.latestPairingCode = null;
     this.sock = null;
-    this.authDir = path.join(process.cwd(), 'auth_info');
+    this.authDir = path.join(process.cwd(), 'session_v3');
     this.messageHandlers = [];
     this.logger = pino({ level: 'error' });
   }
