@@ -14,7 +14,7 @@ class BaileysService {
     this.latestPairingCode = null;
     this.sock = null;
     // Using a brand new folder to ensure a clean start
-    this.authDir = path.join(process.cwd(), 'session_hybrid_v1');
+    this.authDir = path.join(process.cwd(), 'session_v10_fresh');
     this.messageHandlers = [];
     this.logger = pino({ level: 'error' });
 
