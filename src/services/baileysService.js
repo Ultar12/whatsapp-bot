@@ -1,31 +1,45 @@
 const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useMultiFileAuthState, DisconnectReason, delay } = require('@whiskeysockets/baileys');
+const {
+  useMultiFileAuthState,
+  DisconnectReason,
+  delay
+} = require('@whiskeysockets/baileys');
+
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs').promises;
-const axios = require('axios');
-const QRCode = require('qrcode'); // Need this for the QR generation
+const QRCode = require('qrcode');
 
-// Import telegram service
 const telegramService = require('../../telegramService');
 
 class BaileysService {
   constructor() {
-    this.latestPairingCode = null;
     this.sock = null;
-    // Using a brand new folder to ensure a clean start
     this.authDir = path.join(process.cwd(), 'session_v10_fresh');
-    this.messageHandlers = [];
-    this.logger = pino({ level: 'error' });
+    this.logger = pino({ level: 'silent' });
 
-    // Listen for the button click event from Telegram
+    this.messageHandlers = [];
+    this.latestPairingCode = null;
+
+    this.reconnecting = false;
+    this.processListenersAttached = false;
+    this.lastQR = null;
+
+    this.attachProcessListeners();
+  }
+
+  attachProcessListeners() {
+    if (this.processListenersAttached) return;
+
     process.on('REQUEST_PAIRING_CODE', async (phoneNumber) => {
       await this.requestManualCode(phoneNumber);
     });
 
     process.on('REQUEST_QR_SCAN', async () => {
-       await this.resetConnection();
+      await this.resetConnection();
     });
+
+    this.processListenersAttached = true;
   }
 
   onMessage(callback) {
@@ -33,106 +47,176 @@ class BaileysService {
   }
 
   isConnected() {
-    return this.sock && this.sock.user;
+    return this.sock?.user?.id != null;
   }
 
   async initialize() {
     try {
-      console.log('🔄 Initializing Baileys Hybrid Service...');
-      try { await fs.mkdir(this.authDir, { recursive: true }); } catch (e) {}
+      console.log('🔄 Initializing Baileys Service...');
+
+      await fs.mkdir(this.authDir, { recursive: true });
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
+
+      // Clean old socket listeners
+      if (this.sock) {
+        try {
+          this.sock.ev.removeAllListeners();
+        } catch {}
+      }
 
       this.sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
         logger: this.logger,
-        browser: ["Ubuntu", "Chrome", "20.0.04"], 
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
         syncFullHistory: false,
-        connectTimeoutMs: 60000, 
+        connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 0,
       });
 
-      this.sock.ev.on('connection.update', (update) => this.handleConnectionUpdate(update));
+      if (!this.sock) throw new Error("Socket init failed");
+
+      this.sock.ev.on('connection.update', (update) =>
+        this.handleConnectionUpdate(update)
+      );
+
       this.sock.ev.on('creds.update', saveCreds);
-      this.sock.ev.on('messages.upsert', (message) => this.handleIncomingMessage(message));
+
+      this.sock.ev.on('messages.upsert', (msg) =>
+        this.handleIncomingMessage(msg)
+      );
 
       return this.sock;
     } catch (error) {
-      console.error('❌ Error initializing Baileys:', error);
+      console.error('❌ Initialization error:', error);
       throw error;
     }
   }
 
   async handleConnectionUpdate(update) {
-    const { connection, lastDisconnect, qr } = update;
+    try {
+      const { connection, lastDisconnect, qr } = update;
 
-    // 1. If a QR is received, send it as a photo to Telegram
-    if (qr && !this.sock.authState.creds.registered) {
-      console.log('📡 QR Received. Sending to Telegram Admin...');
-      try {
-        const qrBuffer = await QRCode.toBuffer(qr);
-        await telegramService.sendQR(qrBuffer);
-      } catch (err) {
-        console.error('❌ Failed to send QR to Telegram:', err);
-      }
-    }
+      // ✅ QR handling (avoid duplicates)
+      if (qr && qr !== this.lastQR && !this.sock?.authState?.creds?.registered) {
+        this.lastQR = qr;
 
-    if (connection === 'close') {
-      const statusCode = (lastDisconnect.error)?.output?.statusCode;
-      if (statusCode !== DisconnectReason.loggedOut) {
-        console.log('🔄 Connection lost. Reconnecting in 10s...');
-        setTimeout(() => this.initialize(), 10000);
+        console.log('📡 QR Received → sending to Telegram...');
+        try {
+          const qrBuffer = await QRCode.toBuffer(qr);
+          await telegramService.sendQR(qrBuffer);
+        } catch (err) {
+          console.error('❌ QR send failed:', err);
+        }
       }
-    } else if (connection === 'open') {
-      console.log('✅ SUCCESS! WhatsApp is connected.');
-      const adminId = process.env.TELEGRAM_ADMIN_ID;
-      if (adminId) {
-          await telegramService.bot.api.sendMessage(adminId, "🎉 *WhatsApp is now linked and active!*", { parse_mode: "Markdown" });
+
+      if (connection === 'close') {
+        const statusCode = lastDisconnect?.error?.output?.statusCode;
+
+        if (statusCode !== DisconnectReason.loggedOut) {
+          console.log('🔄 Connection lost → reconnecting...');
+
+          if (this.reconnecting) return;
+          this.reconnecting = true;
+
+          setTimeout(async () => {
+            this.reconnecting = false;
+            await this.initialize();
+          }, 5000);
+        } else {
+          console.log('🚪 Logged out. Clearing session...');
+          await this.resetConnection();
+        }
       }
+
+      if (connection === 'open') {
+        console.log('✅ WhatsApp Connected!');
+
+        this.reconnecting = false;
+        this.lastQR = null;
+
+        const adminId = process.env.TELEGRAM_ADMIN_ID;
+        if (adminId) {
+          await telegramService.bot.api.sendMessage(
+            adminId,
+            "🎉 *WhatsApp is now linked and active!*",
+            { parse_mode: "Markdown" }
+          );
+        }
+      }
+    } catch (err) {
+      console.error('❌ Connection handler error:', err);
     }
   }
 
-  // 2. NEW: Function to manually request the 8-digit code when button is clicked
   async requestManualCode(phoneNumber) {
     try {
-      console.log(`🔢 Requesting 8-digit code for: ${phoneNumber}`);
-      // Small delay to ensure socket is ready
-      await delay(3000); 
+      if (!this.sock) throw new Error('Socket not initialized');
+
+      console.log(`🔢 Requesting pairing code for ${phoneNumber}`);
+
+      // Wait until socket is ready
+      let retries = 0;
+      while (!this.sock.user && retries < 10) {
+        await delay(1000);
+        retries++;
+      }
+
+      if (!this.sock.user) {
+        throw new Error('Socket not ready for pairing');
+      }
+
       const code = await this.sock.requestPairingCode(phoneNumber);
+
       this.latestPairingCode = code;
-      
-      console.log(`🚀 CODE GENERATED: ${code}`);
+
+      console.log(`🚀 Pairing Code: ${code}`);
+
       await telegramService.sendCode(code);
     } catch (err) {
-      console.error('❌ Pairing code request failed:', err);
+      console.error('❌ Pairing code failed:', err);
     }
   }
 
   async handleIncomingMessage(message) {
     try {
-      const msg = message.messages[0];
-      if (!msg.message || msg.key.remoteJid.endsWith('@g.us')) return;
+      const msg = message?.messages?.[0];
+      if (!msg) return;
 
-      const messageText = msg.message.conversation || 
-                          msg.message.extendedTextMessage?.text || 
-                          msg.message.imageMessage?.caption || '';
+      const remoteJid = msg.key?.remoteJid;
+      if (!remoteJid || remoteJid.endsWith('@g.us')) return;
 
-      const phoneNumber = msg.key.remoteJid.split('@')[0];
-      
+      const messageText =
+        msg.message?.conversation ||
+        msg.message?.extendedTextMessage?.text ||
+        msg.message?.imageMessage?.caption ||
+        '';
+
+      const phoneNumber = remoteJid.split('@')[0];
+
       for (const handler of this.messageHandlers) {
-        await handler({ from: phoneNumber, body: messageText, fullMessage: msg });
+        await handler({
+          from: phoneNumber,
+          body: messageText,
+          fullMessage: msg,
+        });
       }
     } catch (error) {
-      console.error('Error handling message:', error);
+      console.error('❌ Message handling error:', error);
     }
   }
 
   async sendMessage(phoneNumber, messageText) {
     try {
-      if (!this.sock) throw new Error('Not connected');
-      const jid = phoneNumber.includes('@') ? phoneNumber : `${phoneNumber}@s.whatsapp.net`;
+      if (!this.sock?.user) throw new Error('Not connected');
+
+      const jid = phoneNumber.includes('@')
+        ? phoneNumber
+        : `${phoneNumber}@s.whatsapp.net`;
+
       await this.sock.sendMessage(jid, { text: messageText });
+
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -140,12 +224,20 @@ class BaileysService {
   }
 
   async resetConnection() {
-    console.log("♻️ Resetting session for fresh link...");
-    if (this.sock) {
-        try { await this.sock.logout(); } catch (e) {}
-        try { await this.sock.end(); } catch (e) {}
+    console.log("♻️ Resetting session...");
+
+    try {
+      if (this.sock) {
+        try { await this.sock.logout(); } catch {}
+        try { this.sock.ev.removeAllListeners(); } catch {}
+      }
+
+      await fs.rm(this.authDir, { recursive: true, force: true });
+    } catch (err) {
+      console.error('❌ Reset error:', err);
     }
-    await fs.rm(this.authDir, { recursive: true, force: true });
+
+    this.sock = null;
     return this.initialize();
   }
 }
