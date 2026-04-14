@@ -15,7 +15,8 @@ const telegramService = require('../../telegramService');
 class BaileysService {
   constructor() {
     this.sock = null;
-    this.authDir = path.join(process.cwd(), 'session_v10_fresh');
+    // Updated folder name for a fresh start with your Postgres move
+    this.authDir = path.join(process.cwd(), 'session_v11_postgres');
     this.logger = pino({ level: 'silent' });
 
     this.messageHandlers = [];
@@ -58,7 +59,6 @@ class BaileysService {
 
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir);
 
-      // Clean old socket listeners
       if (this.sock) {
         try {
           this.sock.ev.removeAllListeners();
@@ -98,10 +98,9 @@ class BaileysService {
     try {
       const { connection, lastDisconnect, qr } = update;
 
-      // ✅ QR handling (avoid duplicates)
+      // Handle QR Code delivery to Telegram
       if (qr && qr !== this.lastQR && !this.sock?.authState?.creds?.registered) {
         this.lastQR = qr;
-
         console.log('📡 QR Received → sending to Telegram...');
         try {
           const qrBuffer = await QRCode.toBuffer(qr);
@@ -116,7 +115,6 @@ class BaileysService {
 
         if (statusCode !== DisconnectReason.loggedOut) {
           console.log('🔄 Connection lost → reconnecting...');
-
           if (this.reconnecting) return;
           this.reconnecting = true;
 
@@ -132,7 +130,6 @@ class BaileysService {
 
       if (connection === 'open') {
         console.log('✅ WhatsApp Connected!');
-
         this.reconnecting = false;
         this.lastQR = null;
 
@@ -150,32 +147,33 @@ class BaileysService {
     }
   }
 
+  /**
+   * FIXED: Removed the check for this.sock.user
+   * Now allows pairing code requests before the user is officially "connected"
+   */
   async requestManualCode(phoneNumber) {
     try {
       if (!this.sock) throw new Error('Socket not initialized');
 
       console.log(`🔢 Requesting pairing code for ${phoneNumber}`);
 
-      // Wait until socket is ready
-      let retries = 0;
-      while (!this.sock.user && retries < 10) {
-        await delay(1000);
-        retries++;
-      }
+      // Give the socket a few seconds to stabilize after initialization
+      await delay(3000); 
 
-      if (!this.sock.user) {
-        throw new Error('Socket not ready for pairing');
-      }
-
+      // Request the 8-digit code from WhatsApp
       const code = await this.sock.requestPairingCode(phoneNumber);
 
       this.latestPairingCode = code;
+      console.log(`🚀 Pairing Code Generated: ${code}`);
 
-      console.log(`🚀 Pairing Code: ${code}`);
-
+      // Send the code to your Telegram Bot
       await telegramService.sendCode(code);
     } catch (err) {
       console.error('❌ Pairing code failed:', err);
+      const adminId = process.env.TELEGRAM_ADMIN_ID;
+      if (adminId) {
+          await telegramService.bot.api.sendMessage(adminId, "❌ *Pairing Request Failed*\nCheck console for details.", { parse_mode: "Markdown" });
+      }
     }
   }
 
@@ -216,7 +214,6 @@ class BaileysService {
         : `${phoneNumber}@s.whatsapp.net`;
 
       await this.sock.sendMessage(jid, { text: messageText });
-
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
@@ -225,13 +222,11 @@ class BaileysService {
 
   async resetConnection() {
     console.log("♻️ Resetting session...");
-
     try {
       if (this.sock) {
         try { await this.sock.logout(); } catch {}
         try { this.sock.ev.removeAllListeners(); } catch {}
       }
-
       await fs.rm(this.authDir, { recursive: true, force: true });
     } catch (err) {
       console.error('❌ Reset error:', err);
